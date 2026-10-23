@@ -1,8 +1,10 @@
 # FileID — Magic-Byte File Type Identifier & Spoofing Analyzer
 
-> **Current Version:** `v1.1.0`  
+> **Developed by Soumya Ranjan Sethy**  
+> **Current Version:** `v1.0.0`  
 > **Last Updated:** `2026-10-23`  
 > **Execution Mode:** `100% Client-Side (Browser-Local, Zero Server Uploads)`
+
 
 ---
 
