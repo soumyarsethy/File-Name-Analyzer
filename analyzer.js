@@ -1,13 +1,13 @@
 /**
  * FileID — Client-Side Magic-Byte & Container File Analyzer
- * Version: v1.3.0
+ * Version: v1.4.0
  * Developed by: Soumya Ranjan Sethy
  * Last Updated: 2026-10-23
  * Inspired by Toolsley File Identifier (libmagic / Unix `file` utility)
  * Processes 100% locally in the browser using FileReader & ArrayBuffer.
  */
 
-const APP_VERSION = 'v1.3.0';
+const APP_VERSION = 'v1.4.0';
 const APP_AUTHOR = 'Soumya Ranjan Sethy';
 
 // ============================================================================
@@ -2030,17 +2030,55 @@ function crc32Bytes(uint8Arr) {
   return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
+function yieldToUI() {
+  return new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
+
+let progressHideTimer = null;
+
+function showOperationProgress(percent, statusMsg, rightLabel = null, isDone = false, autoHideMs = 0) {
+  const panel = document.getElementById('operation-progress-panel');
+  const statusEl = document.getElementById('progress-status-text');
+  const percentEl = document.getElementById('progress-percent-text');
+  const fillEl = document.getElementById('progress-bar-fill');
+  if (!panel || !statusEl || !percentEl || !fillEl) return;
+
+  if (progressHideTimer) {
+    clearTimeout(progressHideTimer);
+    progressHideTimer = null;
+  }
+
+  const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  panel.classList.remove('hidden');
+  statusEl.textContent = statusMsg;
+  percentEl.textContent = rightLabel !== null ? rightLabel : `${clamped}%`;
+  fillEl.style.width = `${clamped}%`;
+  fillEl.classList.toggle('progress-done', Boolean(isDone));
+
+  if (autoHideMs > 0) {
+    progressHideTimer = setTimeout(() => {
+      panel.classList.add('hidden');
+    }, autoHideMs);
+  }
+}
+
 /**
- * Creates a standard uncompressed (STORE) .zip Blob from an array of { name, blob } items.
+ * Creates a standard uncompressed (STORE) .zip Blob from an array of { name, blob } items,
+ * reporting live progress via onProgress(percent, statusText, rightLabel).
  */
-async function createZipArchiveBlob(fileEntries) {
+async function createZipArchiveBlob(fileEntries, onProgress = null) {
   const encoder = new TextEncoder();
   const localParts = [];
   const centralParts = [];
   let offset = 0;
   const usedNames = new Set();
 
-  for (const entry of fileEntries) {
+  const totalFiles = fileEntries.length;
+  const totalBytes = fileEntries.reduce((sum, e) => sum + (e.blob ? e.blob.size : 0), 0);
+  let processedBytes = 0;
+
+  for (let idx = 0; idx < totalFiles; idx++) {
+    const entry = fileEntries[idx];
     let safeName = getDownloadBaseName(entry.name || 'file.bin');
     if (usedNames.has(safeName.toLowerCase())) {
       const dotIdx = safeName.lastIndexOf('.');
@@ -2052,11 +2090,45 @@ async function createZipArchiveBlob(fileEntries) {
     }
     usedNames.add(safeName.toLowerCase());
 
+    const startPct = totalBytes > 0
+      ? Math.round((processedBytes / totalBytes) * 95)
+      : Math.round((idx / Math.max(1, totalFiles)) * 95);
+
+    if (onProgress) {
+      onProgress(
+        startPct,
+        `📦 Packing ZIP (${idx + 1} of ${totalFiles}): "${safeName}"...`,
+        `${startPct}% (${idx + 1}/${totalFiles})`
+      );
+      await yieldToUI();
+    }
+
     const nameBytes = encoder.encode(safeName);
     const dataBuffer = await entry.blob.arrayBuffer();
     const dataBytes = new Uint8Array(dataBuffer);
-    const crc = crc32Bytes(dataBytes);
+
+    // Chunked CRC-32 so large files update the progress bar smoothly
+    let crc = 0xFFFFFFFF;
+    const chunkSize = 2 * 1024 * 1024; // 2 MB chunks
+    for (let pos = 0; pos < dataBytes.length; pos += chunkSize) {
+      const end = Math.min(pos + chunkSize, dataBytes.length);
+      for (let i = pos; i < end; i++) {
+        crc = CRC32_TABLE[(crc ^ dataBytes[i]) & 0xFF] ^ (crc >>> 8);
+      }
+      if (onProgress && dataBytes.length > chunkSize) {
+        const currentBytes = processedBytes + end;
+        const pct = totalBytes > 0 ? Math.round((currentBytes / totalBytes) * 95) : startPct;
+        onProgress(
+          pct,
+          `📦 Packing ZIP (${idx + 1} of ${totalFiles}): "${safeName}"...`,
+          `${pct}% (${idx + 1}/${totalFiles})`
+        );
+        await yieldToUI();
+      }
+    }
+    crc = (crc ^ 0xFFFFFFFF) >>> 0;
     const size = dataBytes.length;
+    processedBytes += size;
 
     // Local File Header (30 bytes + filename)
     const localHeader = new Uint8Array(30 + nameBytes.length);
@@ -2099,6 +2171,11 @@ async function createZipArchiveBlob(fileEntries) {
     localParts.push(localHeader, dataBytes);
     centralParts.push(centralHeader);
     offset += localHeader.length + size;
+  }
+
+  if (onProgress) {
+    onProgress(98, `📦 Finalizing ZIP Central Directory (${totalFiles} files)...`, `98% (${totalFiles}/${totalFiles})`);
+    await yieldToUI();
   }
 
   const centralDirSize = centralParts.reduce((acc, arr) => acc + arr.length, 0);
@@ -2260,6 +2337,13 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       updateBatchSummaryCounts();
       applyBatchFilter();
+      showOperationProgress(
+        100,
+        `✅ Updated ${changedCount} file(s) to their true detected extension!`,
+        `100% (${changedCount}/${targets.length})`,
+        true,
+        4000
+      );
       if (uploadStatusHint) {
         uploadStatusHint.textContent = `✏️ Updated ${changedCount} file(s) to their true detected extension! Click "Export Selected Files" or "Export Selected as ZIP" to download them.`;
       }
@@ -2272,15 +2356,31 @@ document.addEventListener('DOMContentLoaded', () => {
       const targets = getTargetRecordsForAction();
       if (targets.length === 0) return;
 
+      exportSelectedFilesBtn.disabled = true;
       for (let i = 0; i < targets.length; i++) {
         const item = targets[i];
         applyTrueExtensionToRecord(item, item.targetExt);
+        const pct = Math.round(((i + 1) / targets.length) * 100);
+        showOperationProgress(
+          pct,
+          `⬇️ Exporting file ${i + 1} of ${targets.length}: "${getDownloadBaseName(item.fileName)}"...`,
+          `${pct}% (${i + 1}/${targets.length})`
+        );
+        await yieldToUI();
         exportSingleRecordFile(item);
         if (targets.length > 1) {
-          await new Promise(r => setTimeout(r, 180));
+          await new Promise(r => setTimeout(r, 200));
         }
       }
+      exportSelectedFilesBtn.disabled = false;
       updateBatchSummaryCounts();
+      showOperationProgress(
+        100,
+        `✅ Exported ${targets.length} file(s) with their true extensions!`,
+        `100% (${targets.length}/${targets.length})`,
+        true,
+        4500
+      );
       if (uploadStatusHint) {
         uploadStatusHint.textContent = `⬇️ Exported ${targets.length} file(s) with their true extensions.`;
       }
@@ -2293,6 +2393,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const targets = getTargetRecordsForAction();
       if (targets.length === 0) return;
 
+      exportSelectedZipBtn.disabled = true;
       const entries = [];
       for (const item of targets) {
         applyTrueExtensionToRecord(item, item.targetExt);
@@ -2303,8 +2404,23 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       updateBatchSummaryCounts();
 
-      const zipBlob = await createZipArchiveBlob(entries);
-      triggerBlobDownload(zipBlob, `FileID-Fixed-Files-${APP_VERSION}-${Date.now()}.zip`);
+      showOperationProgress(2, `📦 Preparing ${entries.length} file(s) for ZIP archive...`, `2% (0/${entries.length})`);
+      await yieldToUI();
+
+      const zipBlob = await createZipArchiveBlob(entries, (pct, msg, rightText) => {
+        showOperationProgress(pct, msg, rightText, false);
+      });
+
+      const zipName = `FileID-Fixed-Files-${APP_VERSION}-${Date.now()}.zip`;
+      showOperationProgress(
+        100,
+        `✅ ZIP Archive Ready (${formatBytes(zipBlob.size)}) — Downloading "${zipName}"!`,
+        `100% (${entries.length}/${entries.length})`,
+        true,
+        5500
+      );
+      exportSelectedZipBtn.disabled = false;
+      triggerBlobDownload(zipBlob, zipName);
       if (uploadStatusHint) {
         uploadStatusHint.textContent = `📦 Exported ${entries.length} renamed file(s) inside ZIP archive!`;
       }
@@ -2438,9 +2554,16 @@ document.addEventListener('DOMContentLoaded', () => {
     for (let idx = 0; idx < total; idx++) {
       const file = files[idx];
       const displayName = file.webkitRelativePath || file.name;
+      const pct = Math.round(((idx) / total) * 100);
+      showOperationProgress(
+        pct,
+        `🔍 Analyzing file ${idx + 1} of ${total}: "${displayName}"...`,
+        `${pct}% (${idx + 1}/${total})`
+      );
       if (uploadStatusHint) {
         uploadStatusHint.textContent = `⏳ Analyzing file ${idx + 1} of ${total}: "${displayName}"...`;
       }
+      await yieldToUI();
 
       // Read first 128 KB for instant magic & container inspection, and up to 25 MB for SHA-256
       const sliceSize = Math.min(file.size, 131072);
@@ -2465,6 +2588,14 @@ document.addEventListener('DOMContentLoaded', () => {
       registerAnalyzedRecord(batchRecords[i]);
       resultsContainer.prepend(batchRecords[i].cardElement);
     }
+
+    showOperationProgress(
+      100,
+      `✅ Analyzed ${total} uploaded file${total > 1 ? 's' : ''} in batch!`,
+      `100% (${total}/${total})`,
+      true,
+      3500
+    );
 
     if (uploadStatusHint) {
       uploadStatusHint.textContent = `✅ Successfully analyzed ${total} uploaded file${total > 1 ? 's' : ''} in batch • Total files in queue: ${analyzedItems.length}`;

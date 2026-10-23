@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
   FileID — Magic-Byte File Type Identifier & Spoofing Analyzer
-  Version: v1.3.0
+  Version: v1.4.0
   Developed by: Soumya Ranjan Sethy
   Last Updated: 2026-10-23
 -->
@@ -9,7 +9,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FileID v1.3.0 — Magic-Byte File Type Identifier &amp; Spoofing Analyzer</title>
+  <title>FileID v1.4.0 — Magic-Byte File Type Identifier &amp; Spoofing Analyzer</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -20,7 +20,7 @@
         <div>
           <div class="brand-title-row">
             <h1>FileID — Magic-Byte File Analyzer</h1>
-            <span id="app-version-badge" class="version-badge" title="Current Application Version">v1.3.0</span>
+            <span id="app-version-badge" class="version-badge" title="Current Application Version">v1.4.0</span>
           </div>
           <p class="brand-subtitle">Client-side file signature identifier &amp; extension spoofing detector (inspired by Toolsley / Unix <code>file</code>)</p>
         </div>
@@ -111,6 +111,17 @@
           <button id="add-more-btn" type="button" class="batch-action-btn">+ Add More Files</button>
           <button id="toggle-collapse-btn" type="button" class="batch-action-btn">Collapse All</button>
           <button id="export-json-btn" type="button" class="batch-action-btn">📄 Export Report JSON</button>
+        </div>
+      </div>
+
+      <!-- Live Visual Progress Bar for Multi-File Upload, Export & ZIP Packaging -->
+      <div id="operation-progress-panel" class="operation-progress-panel hidden" role="status" aria-live="polite">
+        <div class="progress-info-row">
+          <span id="progress-status-text" class="progress-status-text">⏳ Preparing files...</span>
+          <span id="progress-percent-text" class="progress-percent-text">0%</span>
+        </div>
+        <div class="progress-track" aria-hidden="true">
+          <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;"></div>
         </div>
       </div>
     </section>
@@ -247,7 +258,7 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div>
-        FileID <strong id="footer-version" class="footer-version-tag">v1.3.0</strong> — Local Browser-Based Multi-File Identifier &amp; Spoofing Inspector. All files are analyzed in memory via Web FileReader API.
+        FileID <strong id="footer-version" class="footer-version-tag">v1.4.0</strong> — Local Browser-Based Multi-File Identifier &amp; Spoofing Inspector. All files are analyzed in memory via Web FileReader API.
       </div>
       <div class="footer-author">
         Developed by <strong>Soumya Ranjan Sethy</strong>

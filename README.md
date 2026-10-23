@@ -1,7 +1,7 @@
 # FileID — Magic-Byte File Type Identifier & Spoofing Analyzer
 
 > **Developed by Soumya Ranjan Sethy**  
-> **Current Version:** `v1.3.0`  
+> **Current Version:** `v1.4.0`  
 > **Last Updated:** `2026-10-23`  
 > **Execution Mode:** `100% Client-Side (Browser-Local, Zero Server Uploads)`
 
@@ -133,6 +133,7 @@ e:\Backup\File-Name-Analyzer\File-Name-Analyzer\
 
 | Version | Date | Summary of Changes |
 | :--- | :--- | :--- |
+| **`v1.4.0`** | `2026-10-23` | Added a live **Visual Progress Bar (`#operation-progress-panel`)** with chunked CRC-32 UI yielding for **`📦 Export Selected as ZIP`**, **`⬇️ Export Selected Files`**, **`✏️ Change Selected to True Extension`**, and multi-file batch uploads. |
 | **`v1.3.0`** | `2026-10-23` | Added **True Extension Fixer & File Exporter** for single items and multi-selected batches: change file extension to its true detected format (`.mp4`, `.pdf`, `.exe`, etc.), select multiple files via checkboxes, and export renamed files individually or bundled inside a single client-side **`.zip` archive**. |
 | **`v1.2.0`** | `2026-10-23` | Updated bottom footer section to dynamically sync the version (`#footer-version`) from `APP_VERSION` and added **"Developed by Soumya Ranjan Sethy"** attribution across the UI footer, code headers, JSON exports, and documentation. |
 | **`v1.1.0`** | `2026-10-23` | Added explicit version badges/headers across all source files & UI, enhanced upload section for **Multi-File & Folder Batch Uploads**, added live **Batch Summary & Filter Toolbar**, individual card collapse/remove controls, and **Batch JSON Report Export**. |
@@ -141,6 +142,12 @@ e:\Backup\File-Name-Analyzer\File-Name-Analyzer\
 ---
 
 ### Detailed Release Notes
+
+#### [v1.4.0] — 2026-10-23
+- **Added Live Visual Progress Bar for ZIP Export, File Export & Batch Uploads ([`index.html`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/index.html), [`styles.css`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/styles.css), [`analyzer.js`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/analyzer.js)):**
+  - Added `#operation-progress-panel` in the Batch Toolbar displaying the active file name, step count (`X/Y`), percentage (`0%–100%`), and an animated progress bar fill.
+  - Upgraded `createZipArchiveBlob` to compute CRC-32 in 2 MB chunks and yield frames (`yieldToUI`) so the progress bar smoothly updates in real time while packing large multi-file ZIP archives.
+  - Added progress bar feedback for **`📦 Export Selected as ZIP`**, **`⬇️ Export Selected Files`**, **`✏️ Change Selected to True Extension`**, and multi-file uploads.
 
 #### [v1.3.0] — 2026-10-23
 - **Added True Extension Fixer & Single/Multi-File Export ([`index.html`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/index.html), [`styles.css`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/styles.css), [`analyzer.js`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/analyzer.js)):**
