@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FileID — Magic-Byte File Type Identifier &amp; Spoofing Analyzer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <div class="brand">
+        <div class="brand-logo">0xFF</div>
+        <div>
+          <h1>FileID — Magic-Byte File Analyzer</h1>
+          <p class="brand-subtitle">Client-side file signature identifier &amp; extension spoofing detector (inspired by Toolsley / Unix <code>file</code>)</p>
+        </div>
+      </div>
+      <div class="privacy-pill" title="Files never leave your device. All byte inspection runs locally in your browser.">
+        <span class="privacy-dot"></span>
+        100% Client-Side • Zero Server Uploads
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="hero-section">
+      <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Drop files here or click to select files">
+        <div class="drop-icon">🔍</div>
+        <h2>Drop any file here to inspect its true format</h2>
+        <p>
+          Identifies files by inspecting internal binary <strong>magic numbers</strong>, container structures
+          (ZIP/OOXML/APK/JAR, OLE2, RIFF, ISO-BMFF, PE/ELF/Mach-O headers), and text heuristics — ignoring deceptive file extensions.
+        </p>
+        <button id="browse-btn" type="button" class="btn-primary">Choose File(s) from Device</button>
+        <input id="file-input" type="file" multiple class="hidden" />
+      </div>
+
+      <div class="samples-bar">
+        <div class="samples-group">
+          <span class="samples-label">Try Instant Demo Samples:</span>
+          <button type="button" class="sample-btn" data-sample="png_valid">Genuine PNG (512×512)</button>
+          <button type="button" class="sample-btn sample-danger" data-sample="spoofed_exe">⚠️ Spoofed: urgent-invoice.pdf (Actually EXE)</button>
+          <button type="button" class="sample-btn" data-sample="docx_in_zip">DOCX Container (PK\x03\x04)</button>
+          <button type="button" class="sample-btn" data-sample="renamed_pdf">Renamed: mystery-download.dat (Actually PDF)</button>
+          <button type="button" class="sample-btn" data-sample="elf_binary">Linux ELF 64-bit Binary</button>
+        </div>
+        <button id="clear-btn" type="button" class="btn-clear hidden">Clear Results</button>
+      </div>
+    </section>
+
+    <!-- Dynamic Analysis Results -->
+    <section id="results-container" class="results-container hidden" aria-live="polite"></section>
+
+    <!-- Searchable Magic Bytes Reference Table -->
+    <section class="reference-section">
+      <div class="ref-header">
+        <div>
+          <h3>Common Magic-Byte Signatures &amp; Container Headers</h3>
+          <p class="brand-subtitle">How FileID determines file types without trusting the filename extension</p>
+        </div>
+        <input id="sig-search" type="search" class="search-input" placeholder="Filter signatures (e.g. pdf, exe, 50 4B)..." />
+      </div>
+
+      <div class="table-scroll">
+        <table class="sig-table">
+          <thead>
+            <tr>
+              <th>Format / Container</th>
+              <th>Hex Magic Signature</th>
+              <th>ASCII</th>
+              <th>Offset</th>
+              <th>Deep Dissection Performed</th>
+            </tr>
+          </thead>
+          <tbody id="sig-table-body">
+            <tr>
+              <td><strong>ZIP / DOCX / XLSX / PPTX / APK / JAR / EPUB</strong></td>
+              <td><code>50 4B 03 04</code></td>
+              <td><code>PK..</code></td>
+              <td><code>0x00</code></td>
+              <td>Inspects internal records (<code>[Content_Types].xml</code>, <code>word/</code>, <code>xl/</code>, <code>AndroidManifest.xml</code>, <code>META-INF/</code>, <code>mimetype</code>)</td>
+            </tr>
+            <tr>
+              <td><strong>Windows PE Executable (EXE / DLL / SYS)</strong></td>
+              <td><code>4D 5A ... 50 45 00 00</code></td>
+              <td><code>MZ...PE..</code></td>
+              <td><code>0x00 &amp; e_lfanew</code></td>
+              <td>Parses PE32/PE32+ header, CPU architecture (x86/x64/ARM64), DLL vs EXE flag, GUI/Console subsystem, .NET CLR</td>
+            </tr>
+            <tr>
+              <td><strong>Linux / Unix ELF Binary</strong></td>
+              <td><code>7F 45 4C 46</code></td>
+              <td><code>.ELF</code></td>
+              <td><code>0x00</code></td>
+              <td>Extracts 32/64-bit class, endianness, OS ABI, Executable vs Shared Object (<code>.so</code>), and CPU architecture</td>
+            </tr>
+            <tr>
+              <td><strong>PDF Document</strong></td>
+              <td><code>25 50 44 46 2D</code></td>
+              <td><code>%PDF-</code></td>
+              <td><code>0x00 - 0x400</code></td>
+              <td>Extracts PDF version (1.0–2.0), checks <code>/Encrypt</code>, <code>/Linearized</code>, and embedded <code>/JavaScript</code></td>
+            </tr>
+            <tr>
+              <td><strong>PNG / APNG Image</strong></td>
+              <td><code>89 50 4E 47 0D 0A 1A 0A</code></td>
+              <td><code>.PNG....</code></td>
+              <td><code>0x00</code></td>
+              <td>Parses <code>IHDR</code> chunk for pixel dimensions, bit depth, color type (RGB/RGBA/Indexed), interlace, and <code>acTL</code></td>
+            </tr>
+            <tr>
+              <td><strong>JPEG / JFIF / Exif Image</strong></td>
+              <td><code>FF D8 FF E0 / E1 / DB</code></td>
+              <td><code>....</code></td>
+              <td><code>0x00</code></td>
+              <td>Identifies JFIF/Exif marker and scans <code>SOF0</code>/<code>SOF2</code> frames for pixel resolution and baseline/progressive mode</td>
+            </tr>
+            <tr>
+              <td><strong>GIF Image</strong></td>
+              <td><code>47 49 46 38 39 61</code></td>
+              <td><code>GIF89a</code></td>
+              <td><code>0x00</code></td>
+              <td>Extracts GIF87a/GIF89a version and Logical Screen Descriptor width × height</td>
+            </tr>
+            <tr>
+              <td><strong>RIFF (WebP / WAV / AVI / ANI)</strong></td>
+              <td><code>52 49 46 46 ....</code></td>
+              <td><code>RIFF....</code></td>
+              <td><code>0x00 &amp; 0x08</code></td>
+              <td>Inspects FourCC sub-header (<code>WEBP</code> VP8/VP8L/VP8X, <code>WAVE</code> PCM sample rate/channels, <code>AVI </code>)</td>
+            </tr>
+            <tr>
+              <td><strong>ISO Base Media (MP4 / MOV / M4A / HEIC / AVIF)</strong></td>
+              <td><code>.... 66 74 79 70</code></td>
+              <td><code>....ftyp</code></td>
+              <td><code>0x04</code></td>
+              <td>Reads major &amp; compatible brands (<code>isom</code>, <code>qt  </code>, <code>M4A </code>, <code>heic</code>, <code>avif</code>, <code>3gp</code>, <code>crx </code>)</td>
+            </tr>
+            <tr>
+              <td><strong>Microsoft OLE2 Compound (DOC / XLS / PPT / MSG)</strong></td>
+              <td><code>D0 CF 11 E0 A1 B1 1A E1</code></td>
+              <td><code>........</code></td>
+              <td><code>0x00</code></td>
+              <td>Scans directory streams for <code>WordDocument</code>, <code>Workbook</code>, <code>PowerPoint Document</code>, or Outlook MAPI</td>
+            </tr>
+            <tr>
+              <td><strong>RAR Archive (v4 &amp; v5)</strong></td>
+              <td><code>52 61 72 21 1A 07 01 00</code></td>
+              <td><code>Rar!....</code></td>
+              <td><code>0x00</code></td>
+              <td>Distinguishes RAR v1.5–4.x (7-byte header) from RAR v5.0+ (8-byte header)</td>
+            </tr>
+            <tr>
+              <td><strong>7-Zip / GZIP / BZIP2 / XZ / Zstandard</strong></td>
+              <td><code>37 7A BC AF</code> / <code>1F 8B 08</code></td>
+              <td><code>7z..</code></td>
+              <td><code>0x00</code></td>
+              <td>Extracts archive version, GZIP original embedded filename &amp; origin OS, BZIP2 block size</td>
+            </tr>
+            <tr>
+              <td><strong>SQLite 3 Database</strong></td>
+              <td><code>53 51 4C 69 74 65 20 66...</code></td>
+              <td><code>SQLite format 3.</code></td>
+              <td><code>0x00</code></td>
+              <td>Reads database page size and UTF-8 / UTF-16 text encoding from header offsets 16 &amp; 56</td>
+            </tr>
+            <tr>
+              <td><strong>Java Class vs macOS Mach-O Universal</strong></td>
+              <td><code>CA FE BA BE</code></td>
+              <td><code>....</code></td>
+              <td><code>0x00</code></td>
+              <td>Disambiguates <code>0xCAFEBABE</code> between Mach-O Fat Binaries and Java Bytecode (with JDK version mapping)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      FileID — Local Browser-Based File Identifier &amp; Spoofing Inspector. All files are analyzed in memory via Web FileReader API.
+    </div>
+  </footer>
+
+  <script src="analyzer.js"></script>
+</body>
+</html>
+
