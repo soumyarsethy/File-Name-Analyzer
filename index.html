@@ -1,9 +1,14 @@
 <!DOCTYPE html>
+<!--
+  FileID — Magic-Byte File Type Identifier & Spoofing Analyzer
+  Version: v1.1.0
+  Last Updated: 2026-10-23
+-->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FileID — Magic-Byte File Type Identifier &amp; Spoofing Analyzer</title>
+  <title>FileID v1.1.0 — Magic-Byte File Type Identifier &amp; Spoofing Analyzer</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -12,7 +17,10 @@
       <div class="brand">
         <div class="brand-logo">0xFF</div>
         <div>
-          <h1>FileID — Magic-Byte File Analyzer</h1>
+          <div class="brand-title-row">
+            <h1>FileID — Magic-Byte File Analyzer</h1>
+            <span id="app-version-badge" class="version-badge" title="Current Application Version">v1.1.0</span>
+          </div>
           <p class="brand-subtitle">Client-side file signature identifier &amp; extension spoofing detector (inspired by Toolsley / Unix <code>file</code>)</p>
         </div>
       </div>
@@ -25,15 +33,21 @@
 
   <main class="container">
     <section class="hero-section">
-      <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Drop files here or click to select files">
+      <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Drop single or multiple files here or click to select files">
+        <div class="upload-mode-pill">✨ Single &amp; Multi-File Batch Upload Supported</div>
         <div class="drop-icon">🔍</div>
-        <h2>Drop any file here to inspect its true format</h2>
+        <h2>Drop single or multiple files here to inspect their true format</h2>
         <p>
-          Identifies files by inspecting internal binary <strong>magic numbers</strong>, container structures
-          (ZIP/OOXML/APK/JAR, OLE2, RIFF, ISO-BMFF, PE/ELF/Mach-O headers), and text heuristics — ignoring deceptive file extensions.
+          Select or drag &amp; drop <strong>multiple files at once</strong> (or an entire folder). Identifies every file by inspecting internal binary
+          <strong>magic numbers</strong>, container structures (ZIP/OOXML/APK/JAR, OLE2, RIFF, ISO-BMFF, PE/ELF/Mach-O headers), and text heuristics — ignoring deceptive file extensions.
         </p>
-        <button id="browse-btn" type="button" class="btn-primary">Choose File(s) from Device</button>
+        <div class="upload-actions">
+          <button id="browse-btn" type="button" class="btn-primary">📁 Choose Multiple Files</button>
+          <button id="browse-folder-btn" type="button" class="btn-secondary">📂 Upload Folder (Batch)</button>
+        </div>
+        <p id="upload-status-hint" class="upload-hint">Tip: Hold <kbd>Ctrl</kbd> / <kbd>Shift</kbd> (or <kbd>Cmd</kbd>) in the file picker to select multiple files at once, or drag &amp; drop any number of files together.</p>
         <input id="file-input" type="file" multiple class="hidden" />
+        <input id="folder-input" type="file" webkitdirectory directory multiple class="hidden" />
       </div>
 
       <div class="samples-bar">
@@ -44,8 +58,32 @@
           <button type="button" class="sample-btn" data-sample="docx_in_zip">DOCX Container (PK\x03\x04)</button>
           <button type="button" class="sample-btn" data-sample="renamed_pdf">Renamed: mystery-download.dat (Actually PDF)</button>
           <button type="button" class="sample-btn" data-sample="elf_binary">Linux ELF 64-bit Binary</button>
+          <button id="sample-all-btn" type="button" class="sample-btn sample-batch">⚡ Load All 5 Samples (Multi-File Batch)</button>
         </div>
-        <button id="clear-btn" type="button" class="btn-clear hidden">Clear Results</button>
+        <button id="clear-btn" type="button" class="btn-clear hidden">Clear All Results</button>
+      </div>
+    </section>
+
+    <!-- Multi-File Batch Summary & Toolbar -->
+    <section id="batch-summary-bar" class="batch-summary-bar hidden" aria-label="Multi-file batch analysis summary">
+      <div class="batch-stats">
+        <button type="button" class="batch-filter-btn active" data-filter="all">
+          All Uploaded <span id="count-all" class="batch-count">0</span>
+        </button>
+        <button type="button" class="batch-filter-btn filter-match" data-filter="match">
+          Verified Match <span id="count-match" class="batch-count">0</span>
+        </button>
+        <button type="button" class="batch-filter-btn filter-warning" data-filter="warning">
+          Mismatches <span id="count-warning" class="batch-count">0</span>
+        </button>
+        <button type="button" class="batch-filter-btn filter-danger" data-filter="danger">
+          Spoofing Alerts <span id="count-danger" class="batch-count">0</span>
+        </button>
+      </div>
+      <div class="batch-actions">
+        <button id="add-more-btn" type="button" class="batch-action-btn">+ Add More Files</button>
+        <button id="toggle-collapse-btn" type="button" class="batch-action-btn">Collapse All</button>
+        <button id="export-json-btn" type="button" class="batch-action-btn">Export Batch JSON</button>
       </div>
     </section>
 
@@ -180,11 +218,10 @@
 
   <footer class="site-footer">
     <div class="container">
-      FileID — Local Browser-Based File Identifier &amp; Spoofing Inspector. All files are analyzed in memory via Web FileReader API.
+      FileID <strong>v1.1.0</strong> — Local Browser-Based Multi-File Identifier &amp; Spoofing Inspector. All files are analyzed in memory via Web FileReader API.
     </div>
   </footer>
 
   <script src="analyzer.js"></script>
 </body>
 </html>
-

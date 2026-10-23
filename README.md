@@ -1,6 +1,6 @@
 # FileID — Magic-Byte File Type Identifier & Spoofing Analyzer
 
-> **Current Version:** `v1.0.0`  
+> **Current Version:** `v1.1.0`  
 > **Last Updated:** `2026-10-23`  
 > **Execution Mode:** `100% Client-Side (Browser-Local, Zero Server Uploads)`
 
@@ -8,7 +8,7 @@
 
 ## 📌 What This App Is For (Overview & Purpose)
 
-**FileID (File Name & Signature Analyzer)** is a privacy-first, client-side web application that identifies the **true format** of any file by inspecting its internal binary **magic numbers (file signatures)**, **container structures**, and **content heuristics** — rather than trusting the filename extension.
+**FileID (File Name & Signature Analyzer)** is a privacy-first, client-side web application that identifies the **true format** of single or multiple files by inspecting their internal binary **magic numbers (file signatures)**, **container structures**, and **content heuristics** — rather than trusting the filename extension.
 
 Operating systems and users often rely on file extensions (like `.pdf`, `.jpg`, or `.docx`) to know what a file is. However:
 1. **Malware & Extension Spoofing:** Attackers frequently disguise dangerous executables (such as Windows `.exe` or Linux `ELF` binaries) with harmless extensions like `urgent-invoice.pdf` or double extensions like `receipt.pdf.exe`.
@@ -23,12 +23,12 @@ Operating systems and users often rely on file extensions (like `.pdf`, `.jpg`, 
 
 FileID runs a **6-stage local inspection pipeline** entirely in browser memory using the HTML5 `File` / `Blob.slice()` API, `ArrayBuffer`, and `Web Crypto API`:
 
-```
-[User Drops or Selects File(s)]
+```text
+[User Drops or Selects Multiple Files / Entire Folder]
         │
         ▼
-1. Non-Blocking Header Slice
-   └── Reads first 128 KB (131,072 bytes) into a Uint8Array for instant analysis
+1. Non-Blocking Multi-File Header Slice
+   └── Reads first 128 KB (131,072 bytes) per file into a Uint8Array for instant analysis
    └── Reads up to 25 MB into Web Crypto API for full-file SHA-256 hashing
         │
         ▼
@@ -52,7 +52,9 @@ FileID runs a **6-stage local inspection pipeline** entirely in browser memory u
    └── Computes SHA-256 digest via window.crypto.subtle
         │
         ▼
-5. Interactive Forensic Report Rendering
+5. Multi-File Batch Summary, Filtering & Forensic Report Rendering
+   ├── Live Batch Summary Toolbar (All Uploaded, Verified Match, Mismatches, Spoofing Alerts)
+   ├── Batch Actions (+ Add More Files, Collapse/Expand All, Export Batch JSON Report)
    ├── Unix `file` / libmagic terminal summary with 1-click copy
    ├── Color-coded Extension Verification Alert (Match / Warning / Spoofing Danger)
    ├── Deep Header & Container Metadata bullets
@@ -64,6 +66,10 @@ FileID runs a **6-stage local inspection pipeline** entirely in browser memory u
 ## ✨ Key Features
 
 - **🔒 100% Local & Private:** Files never leave your device. Even multi-gigabyte files are analyzed instantaneously because FileID slices only the first `128 KB` for structural dissection.
+- **📂 Multi-File & Folder Batch Upload (`v1.1.0`):**
+  - Select multiple files at once (`📁 Choose Multiple Files`), upload an entire directory (`📂 Upload Folder (Batch)`), or drag and drop multiple files into the upload zone.
+  - Incrementally queue additional files with **`+ Add More Files`**.
+  - Filter multi-file results by status (**All Uploaded**, **Verified Match**, **Mismatches**, **Spoofing Alerts**), collapse/expand cards, remove individual cards, or export a **Batch JSON Report**.
 - **🕵️ Extension Spoofing & Malware Masquerade Detection:**
   - **Verified Match (Green):** Filename extension matches the binary signature.
   - **Mismatch / Missing Extension (Amber Warning):** File is renamed (e.g., `.dat`) or lacks an extension; suggests the proper extension.
@@ -72,7 +78,7 @@ FileID runs a **6-stage local inspection pipeline** entirely in browser memory u
 - **🧮 Shannon Entropy Calculator:** Measures byte randomness from `0.000` to `8.000 bits/byte` to distinguish plain text, structured binary headers, and compressed/encrypted/packed payloads (`> 7.4 bits/byte`).
 - **🔑 Built-in SHA-256 Hashing:** Automatically generates the cryptographic SHA-256 fingerprint using the browser's native `SubtleCrypto` engine.
 - **🔬 Interactive 64-Byte Hex & ASCII Inspector:** Displays the first 64 bytes (`0x0000`–`0x003F`) side-by-side in hexadecimal and printable ASCII, visually highlighting the exact byte range that triggered the format match.
-- **🧪 Instant Built-in Demo Samples:** Includes 5 in-memory synthetic binary samples (`Genuine PNG`, `Spoofed EXE-as-PDF`, `DOCX in ZIP`, `Renamed PDF`, `Linux ELF 64-bit`) so users can test the analyzer with one click.
+- **🧪 Instant Built-in Demo Samples (Single & Batch):** Includes 5 in-memory synthetic binary samples plus a **`⚡ Load All 5 Samples (Multi-File Batch)`** button to test multi-file analysis in one click.
 - **🔎 Searchable Signature Reference Table:** Built-in quick filter table documenting common hex signatures, ASCII equivalents, offsets, and deep dissection rules.
 
 ---
@@ -97,10 +103,10 @@ FileID runs a **6-stage local inspection pipeline** entirely in browser memory u
 ## 🗂️ Project Structure
 
 ```text
-d:\File Name Analyzer\
-├── index.html      # Main application UI, dropzone, demo sample bar, and searchable reference table
-├── styles.css      # Dark-mode forensic UI theme, status badges, metrics grid, and hex viewer layout
-├── analyzer.js     # Core binary parsing engine, container dissectors, spoofing verifier, and DOM renderer
+e:\Backup\File-Name-Analyzer\File-Name-Analyzer\
+├── index.html      # Main application UI, multi-file/folder upload zone, batch toolbar, and reference table
+├── styles.css      # Dark-mode forensic UI theme, version badge, batch summary bar, and hex viewer layout
+├── analyzer.js     # Core binary parsing engine, multi-file batch state manager, spoofing verifier, and DOM renderer
 └── README.md       # Project documentation, architecture guide, and version changelog (this file)
 ```
 
@@ -108,48 +114,52 @@ d:\File Name Analyzer\
 
 ## 🚀 How to Run & Use
 
-1. **Zero Build / Zero Dependencies:** Simply open [`index.html`](file:///d:/File%20Name%20Analyzer/index.html) in any modern web browser (Chrome, Edge, Firefox, Safari), or serve the folder with any static HTTP server (e.g., VS Code Live Server or `python -m http.server`).
-2. **Analyze Your Files:** Drag and drop one or more files onto the dashed inspection zone, or click **"Choose File(s) from Device"**.
-3. **Test Built-in Samples:** Click any button in the **"Try Instant Demo Samples"** bar (such as `⚠️ Spoofed: urgent-invoice.pdf`) to see how FileID catches disguised executables and inspects internal headers.
+1. **Zero Build / Zero Dependencies:** Simply open [`index.html`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/index.html) in any modern web browser (Chrome, Edge, Firefox, Safari), or serve the folder with any static HTTP server.
+2. **Analyze Multiple Files or Folders:**
+   - Click **"📁 Choose Multiple Files"** to pick several files at once (`Ctrl`/`Shift` click),
+   - Click **"📂 Upload Folder (Batch)"** to inspect all files inside a directory, or
+   - Drag and drop multiple files directly onto the inspection zone.
+3. **Filter & Export Batch Results:** Use the **Multi-File Batch Summary Bar** to filter by `Verified Match`, `Mismatches`, or `Spoofing Alerts`, collapse/expand cards, or click **"Export Batch JSON"**.
 
 ---
 
 ## 📝 Version History & Changelog
 
-> **Maintenance Rule:** Always update the **Current Version** badge at the top of this file and append a new entry to the table and detailed log below whenever features, signatures, UI improvements, or bug fixes are made.
+> **Mandatory Versioning Rule:** Every code or UI update **MUST** increment the version number across [`index.html`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/index.html), [`styles.css`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/styles.css), [`analyzer.js`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/analyzer.js) (`APP_VERSION`), and [`README.md`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/README.md), and record a new entry in the Version Summary Table and Detailed Release Notes below.
 
 ### Version Summary Table
 
 | Version | Date | Summary of Changes |
 | :--- | :--- | :--- |
+| **`v1.1.0`** | `2026-10-23` | Added explicit version badges/headers across all source files & UI, enhanced upload section for **Multi-File & Folder Batch Uploads**, added live **Batch Summary & Filter Toolbar**, individual card collapse/remove controls, and **Batch JSON Report Export**. |
 | **`v1.0.0`** | `2026-10-23` | Initial release of **FileID — Magic-Byte File Type Identifier & Spoofing Analyzer** with 35+ signature & container dissectors, spoofing alerts, entropy/SHA-256 metrics, 64-byte hex inspector, and project documentation. |
 
 ---
 
 ### Detailed Release Notes
 
+#### [v1.1.0] — 2026-10-23
+- **Added Version Tracking Across All Code & UI:**
+  - Added `APP_VERSION = 'v1.1.0'` constant in [`analyzer.js`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/analyzer.js), version header comments in all files, and visible `v1.1.0` badges in the navbar header and footer of [`index.html`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/index.html).
+- **Enhanced Multi-File & Folder Upload Section ([`index.html`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/index.html), [`styles.css`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/styles.css), [`analyzer.js`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/analyzer.js)):**
+  - Added dedicated **`📁 Choose Multiple Files`** and **`📂 Upload Folder (Batch)`** buttons in the upload dropzone.
+  - Added live multi-file upload progress and batch status feedback (`#upload-status-hint`).
+  - Added **`⚡ Load All 5 Samples (Multi-File Batch)`** button for one-click multi-file demo testing.
+  - Added **Multi-File Batch Summary & Filter Bar (`#batch-summary-bar`)** with live counters (`All Uploaded`, `Verified Match`, `Mismatches`, `Spoofing Alerts`), status filtering, **`+ Add More Files`**, **`Collapse/Expand All`**, and **`Export Batch JSON`**.
+  - Added individual **Collapse/Expand** and **Remove (`✕`)** buttons on each file analysis card.
+
 #### [v1.0.0] — 2026-10-23
-- **Added Core Detection Engine ([`analyzer.js`](file:///d:/File%20Name%20Analyzer/analyzer.js)):**
+- **Added Core Detection Engine ([`analyzer.js`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/analyzer.js)):**
   - Implemented 35+ binary magic-byte detectors and heuristic text/code analyzers.
   - Added deep container inspection for `ZIP/OOXML/APK/JAR/EPUB/ODT`, `OLE2 (DOC/XLS/PPT/MSG)`, `Windows PE/MZ`, `Linux ELF`, `macOS Mach-O`, `RIFF`, `ISO-BMFF (ftyp)`, `PNG`, `JPEG`, and `PDF`.
   - Added `0xCAFEBABE` disambiguation between compiled Java `.class` bytecode (with JDK version mapping) and macOS Universal Fat binaries.
 - **Added Extension Spoofing & Security Analyzer:**
   - Detects disguised executables (`status-danger`), double-extension spoofing (e.g., `.pdf.exe`), mismatched extensions (`status-warning`), and verified matches (`status-match`).
   - Added Shannon entropy calculation (`0–8 bits/byte`) and Web Crypto `SHA-256` hashing.
-- **Added Forensic User Interface ([`index.html`](file:///d:/File%20Name%20Analyzer/index.html), [`styles.css`](file:///d:/File%20Name%20Analyzer/styles.css)):**
+- **Added Forensic User Interface ([`index.html`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/index.html), [`styles.css`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/styles.css)):**
   - Drag-and-drop multi-file uploader with 5 instant in-memory demo samples.
   - Unix `file` / `libmagic` terminal banner with one-click copy.
   - 64-byte raw hexadecimal + ASCII preview highlighting matched magic bytes.
   - Real-time searchable Magic-Byte Reference Table.
-- **Added Documentation ([`README.md`](file:///d:/File%20Name%20Analyzer/README.md)):**
+- **Added Documentation ([`README.md`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/README.md)):**
   - Created comprehensive documentation covering application purpose, internal workflow, supported formats, and version tracking.
-
-<!--
-TEMPLATE FOR FUTURE UPDATES:
-
-#### [vX.Y.Z] — YYYY-MM-DD
-- **Added:** ...
-- **Changed / Improved:** ...
-- **Fixed:** ...
--->
-

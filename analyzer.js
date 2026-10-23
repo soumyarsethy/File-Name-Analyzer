@@ -1,8 +1,12 @@
 /**
  * FileID — Client-Side Magic-Byte & Container File Analyzer
+ * Version: v1.1.0
+ * Last Updated: 2026-10-23
  * Inspired by Toolsley File Identifier (libmagic / Unix `file` utility)
  * Processes 100% locally in the browser using FileReader & ArrayBuffer.
  */
+
+const APP_VERSION = 'v1.1.0';
 
 // ============================================================================
 // 1. Utility Helpers for Binary Reading
@@ -1958,16 +1962,32 @@ const BUILTIN_SAMPLES = {
 };
 
 // ============================================================================
-// 6. UI Controller & Rendering
+// 6. UI Controller, Multi-File Batch State & Rendering (v1.1.0)
 // ============================================================================
 
+let analyzedItems = [];
+let activeFilter = 'all';
+let allCollapsed = false;
+
 document.addEventListener('DOMContentLoaded', () => {
+  const versionBadge = document.getElementById('app-version-badge');
+  if (versionBadge) versionBadge.textContent = APP_VERSION;
+
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
+  const folderInput = document.getElementById('folder-input');
   const browseBtn = document.getElementById('browse-btn');
+  const browseFolderBtn = document.getElementById('browse-folder-btn');
+  const addMoreBtn = document.getElementById('add-more-btn');
+  const toggleCollapseBtn = document.getElementById('toggle-collapse-btn');
+  const exportJsonBtn = document.getElementById('export-json-btn');
+  const uploadStatusHint = document.getElementById('upload-status-hint');
+  const batchSummaryBar = document.getElementById('batch-summary-bar');
+  const filterBtns = document.querySelectorAll('.batch-filter-btn');
   const resultsContainer = document.getElementById('results-container');
   const clearBtn = document.getElementById('clear-btn');
   const sampleButtons = document.querySelectorAll('[data-sample]');
+  const sampleAllBtn = document.getElementById('sample-all-btn');
   const signatureSearch = document.getElementById('sig-search');
   const sigTableBody = document.getElementById('sig-table-body');
 
@@ -1976,7 +1996,24 @@ document.addEventListener('DOMContentLoaded', () => {
     fileInput.click();
   });
 
+  if (browseFolderBtn && folderInput) {
+    browseFolderBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      folderInput.click();
+    });
+  }
+
+  if (addMoreBtn) {
+    addMoreBtn.addEventListener('click', () => fileInput.click());
+  }
+
   dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      fileInput.click();
+    }
+  });
 
   dropZone.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -2002,31 +2039,125 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  if (folderInput) {
+    folderInput.addEventListener('change', async (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        await handleFiles(Array.from(e.target.files));
+        folderInput.value = '';
+      }
+    });
+  }
+
   clearBtn.addEventListener('click', () => {
+    analyzedItems = [];
     resultsContainer.innerHTML = '';
     resultsContainer.classList.add('hidden');
     clearBtn.classList.add('hidden');
+    if (batchSummaryBar) batchSummaryBar.classList.add('hidden');
+    if (uploadStatusHint) {
+      uploadStatusHint.innerHTML = 'Tip: Hold <kbd>Ctrl</kbd> / <kbd>Shift</kbd> (or <kbd>Cmd</kbd>) in the file picker to select multiple files at once, or drag &amp; drop any number of files together.';
+    }
   });
+
+  filterBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeFilter = btn.getAttribute('data-filter') || 'all';
+      filterBtns.forEach(b => b.classList.toggle('active', b === btn));
+      applyBatchFilter();
+    });
+  });
+
+  if (toggleCollapseBtn) {
+    toggleCollapseBtn.addEventListener('click', () => {
+      allCollapsed = !allCollapsed;
+      toggleCollapseBtn.textContent = allCollapsed ? 'Expand All' : 'Collapse All';
+      analyzedItems.forEach(item => {
+        item.cardElement.classList.toggle('collapsed', allCollapsed);
+        const btn = item.cardElement.querySelector('.collapse-card-btn');
+        if (btn) btn.textContent = allCollapsed ? '▸ Expand' : '▾ Collapse';
+      });
+    });
+  }
+
+  if (exportJsonBtn) {
+    exportJsonBtn.addEventListener('click', () => {
+      if (analyzedItems.length === 0) return;
+      const report = {
+        app: 'FileID — Magic-Byte File Type Identifier & Spoofing Analyzer',
+        appVersion: APP_VERSION,
+        exportedAt: new Date().toISOString(),
+        totalFiles: analyzedItems.length,
+        summary: {
+          verifiedMatch: analyzedItems.filter(i => i.status === 'match').length,
+          mismatches: analyzedItems.filter(i => i.status === 'warning').length,
+          spoofingAlerts: analyzedItems.filter(i => i.status === 'danger').length
+        },
+        files: analyzedItems.map(i => ({
+          fileName: i.fileName,
+          fileSize: i.fileSize,
+          status: i.status,
+          statusBadge: i.statusBadge,
+          detectedFormat: i.detectedName,
+          mimeType: i.mime,
+          category: i.category,
+          confidence: i.confidence,
+          libmagicSummary: i.libmagicText,
+          entropyBitsPerByte: Number(i.entropy.toFixed(3)),
+          sha256: i.sha256
+        }))
+      };
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fileid-batch-report-${APP_VERSION}-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
 
   sampleButtons.forEach(btn => {
     btn.addEventListener('click', async () => {
       const key = btn.getAttribute('data-sample');
       const sample = BUILTIN_SAMPLES[key];
       if (!sample) return;
-      resultsContainer.classList.remove('hidden');
-      clearBtn.classList.remove('hidden');
-      const card = await analyzeBufferAndRender(
-        sample.fileName,
-        sample.bytes.length,
-        new Date(),
-        sample.bytes.buffer,
-        true,
-        sample.description
-      );
-      resultsContainer.prepend(card);
-      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      await renderSampleKey(key, true);
     });
   });
+
+  if (sampleAllBtn) {
+    sampleAllBtn.addEventListener('click', async () => {
+      const keys = Object.keys(BUILTIN_SAMPLES).reverse();
+      for (const key of keys) {
+        await renderSampleKey(key, false);
+      }
+      if (uploadStatusHint) {
+        uploadStatusHint.textContent = `✅ Loaded all 5 built-in demo samples in multi-file batch mode • Total files in queue: ${analyzedItems.length}`;
+      }
+    });
+  }
+
+  async function renderSampleKey(key, scrollIntoViewFlag = true) {
+    const sample = BUILTIN_SAMPLES[key];
+    if (!sample) return;
+    resultsContainer.classList.remove('hidden');
+    clearBtn.classList.remove('hidden');
+    if (batchSummaryBar) batchSummaryBar.classList.remove('hidden');
+
+    const record = await analyzeBufferAndRender(
+      sample.fileName,
+      sample.bytes.length,
+      new Date(),
+      sample.bytes.buffer,
+      true,
+      sample.description
+    );
+    registerAnalyzedRecord(record);
+    resultsContainer.prepend(record.cardElement);
+    if (scrollIntoViewFlag) {
+      record.cardElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
 
   if (signatureSearch && sigTableBody) {
     signatureSearch.addEventListener('input', () => {
@@ -2040,17 +2171,28 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function handleFiles(files) {
+    if (!files || files.length === 0) return;
     resultsContainer.classList.remove('hidden');
     clearBtn.classList.remove('hidden');
+    if (batchSummaryBar) batchSummaryBar.classList.remove('hidden');
 
-    for (const file of files) {
+    const total = files.length;
+    const batchRecords = [];
+
+    for (let idx = 0; idx < total; idx++) {
+      const file = files[idx];
+      const displayName = file.webkitRelativePath || file.name;
+      if (uploadStatusHint) {
+        uploadStatusHint.textContent = `⏳ Analyzing file ${idx + 1} of ${total}: "${displayName}"...`;
+      }
+
       // Read first 128 KB for instant magic & container inspection, and up to 25 MB for SHA-256
       const sliceSize = Math.min(file.size, 131072);
       const headerBuffer = await file.slice(0, sliceSize).arrayBuffer();
       const hashBuffer = file.size <= 25 * 1024 * 1024 ? await file.arrayBuffer() : null;
 
-      const card = await analyzeBufferAndRender(
-        file.name,
+      const record = await analyzeBufferAndRender(
+        displayName,
         file.size,
         file.lastModified ? new Date(file.lastModified) : null,
         headerBuffer,
@@ -2058,10 +2200,66 @@ document.addEventListener('DOMContentLoaded', () => {
         null,
         hashBuffer
       );
-      resultsContainer.prepend(card);
+      batchRecords.push(record);
+    }
+
+    // Prepend in reverse so the first selected file in the batch stays at the very top
+    for (let i = batchRecords.length - 1; i >= 0; i--) {
+      registerAnalyzedRecord(batchRecords[i]);
+      resultsContainer.prepend(batchRecords[i].cardElement);
+    }
+
+    if (uploadStatusHint) {
+      uploadStatusHint.textContent = `✅ Successfully analyzed ${total} uploaded file${total > 1 ? 's' : ''} in batch • Total files in queue: ${analyzedItems.length}`;
     }
   }
 });
+
+function registerAnalyzedRecord(record) {
+  analyzedItems.unshift(record);
+  updateBatchSummaryCounts();
+  applyBatchFilter();
+}
+
+function removeAnalyzedRecord(recordId) {
+  const idx = analyzedItems.findIndex(item => item.id === recordId);
+  if (idx !== -1) {
+    const [removed] = analyzedItems.splice(idx, 1);
+    if (removed && removed.cardElement) {
+      removed.cardElement.remove();
+    }
+  }
+  updateBatchSummaryCounts();
+  applyBatchFilter();
+
+  const resultsContainer = document.getElementById('results-container');
+  const clearBtn = document.getElementById('clear-btn');
+  const batchSummaryBar = document.getElementById('batch-summary-bar');
+  if (analyzedItems.length === 0) {
+    if (resultsContainer) resultsContainer.classList.add('hidden');
+    if (clearBtn) clearBtn.classList.add('hidden');
+    if (batchSummaryBar) batchSummaryBar.classList.add('hidden');
+  }
+}
+
+function updateBatchSummaryCounts() {
+  const countAll = document.getElementById('count-all');
+  const countMatch = document.getElementById('count-match');
+  const countWarning = document.getElementById('count-warning');
+  const countDanger = document.getElementById('count-danger');
+
+  if (countAll) countAll.textContent = analyzedItems.length;
+  if (countMatch) countMatch.textContent = analyzedItems.filter(i => i.status === 'match').length;
+  if (countWarning) countWarning.textContent = analyzedItems.filter(i => i.status === 'warning').length;
+  if (countDanger) countDanger.textContent = analyzedItems.filter(i => i.status === 'danger').length;
+}
+
+function applyBatchFilter() {
+  analyzedItems.forEach(item => {
+    const visible = activeFilter === 'all' || item.status === activeFilter;
+    item.cardElement.classList.toggle('hidden', !visible);
+  });
+}
 
 async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerArrayBuffer, isSample = false, sampleNote = null, fullArrayBufferForHash = null) {
   const bytes = new Uint8Array(headerArrayBuffer);
@@ -2069,6 +2267,7 @@ async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerAr
   const extCheck = evaluateExtensionMatch(fileName, detection);
   const entropy = calculateEntropy(bytes);
   const sha256 = await computeSHA256(fullArrayBufferForHash || headerArrayBuffer);
+  const recordId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const magicHex = detection.magicLength > 0
     ? toHex(bytes, detection.magicOffset, Math.min(detection.magicLength, 16))
@@ -2082,7 +2281,8 @@ async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerAr
   const hexDumpRowsHtml = buildHexPreviewHtml(bytes, detection.magicOffset, detection.magicLength);
 
   const card = document.createElement('article');
-  card.className = `result-card status-${extCheck.status}`;
+  card.className = `result-card status-${extCheck.status}${allCollapsed ? ' collapsed' : ''}`;
+  card.dataset.status = extCheck.status;
 
   const expectedExtPills = (detection.extensions && detection.extensions.length > 0)
     ? detection.extensions.map(ext => `<span class="ext-pill">.${escapeHtml(ext)}</span>`).join('')
@@ -2108,75 +2308,81 @@ async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerAr
           </p>
         </div>
       </div>
-      <div class="ext-status-badge badge-${extCheck.status}">
-        <span class="status-dot"></span>
-        ${escapeHtml(extCheck.badge)}
-      </div>
-    </div>
-
-    <!-- Toolsley / Unix 'file' command output banner -->
-    <div class="libmagic-banner">
-      <div class="banner-top">
-        <span class="terminal-prompt">$ file --Keep-going "${escapeHtml(fileName)}"</span>
-        <button class="copy-btn" type="button" title="Copy identification result">Copy Result</button>
-      </div>
-      <div class="libmagic-output">
-        <strong>${escapeHtml(detection.name)}</strong> — <span>${escapeHtml(detection.libmagicText)}</span>
-      </div>
-    </div>
-
-    <!-- Extension Spoofing / Verification Alert Box -->
-    <div class="spoof-alert alert-${extCheck.status}">
-      <div class="spoof-alert-text">
-        <strong>Extension Check:</strong> ${escapeHtml(extCheck.message)}
-      </div>
-    </div>
-
-    <!-- Core Metrics Grid -->
-    <div class="metrics-grid">
-      <div class="metric-box">
-        <span class="metric-label">Detected Format</span>
-        <span class="metric-value highlight">${escapeHtml(detection.name)}</span>
-      </div>
-      <div class="metric-box">
-        <span class="metric-label">MIME Type</span>
-        <span class="metric-value mono">${escapeHtml(detection.mime)}</span>
-      </div>
-      <div class="metric-box">
-        <span class="metric-label">Category & Confidence</span>
-        <span class="metric-value">${escapeHtml(detection.category)} <small class="conf-tag">(${escapeHtml(detection.confidence)})</small></span>
-      </div>
-      <div class="metric-box">
-        <span class="metric-label">Valid Extensions</span>
-        <div class="ext-pills-wrap">${expectedExtPills}</div>
-      </div>
-      <div class="metric-box">
-        <span class="metric-label">Magic Signature (Offset 0x${detection.magicOffset.toString(16).toUpperCase()})</span>
-        <span class="metric-value mono">${escapeHtml(magicHex || 'N/A')} <span class="ascii-inline">(${escapeHtml(magicAscii)})</span></span>
-      </div>
-      <div class="metric-box">
-        <span class="metric-label">Shannon Entropy</span>
-        <span class="metric-value">${entropy.toFixed(3)} / 8.000 bits/byte</span>
-      </div>
-    </div>
-
-    <!-- Deep Container & Header Insights -->
-    <div class="inspector-columns">
-      <div class="inspector-panel">
-        <h4>Deep Header & Container Analysis</h4>
-        <ul class="details-list">
-          ${detailsListHtml}
-          ${sha256 ? `<li class="hash-item"><strong>SHA-256:</strong> <code>${sha256}</code></li>` : `<li class="hash-item"><strong>SHA-256 (first 128KB sample):</strong> <code>${await computeSHA256(headerArrayBuffer)}</code></li>`}
-        </ul>
-      </div>
-
-      <div class="inspector-panel">
-        <div class="hex-panel-header">
-          <h4>Raw Header Hex Inspector (First 64 Bytes)</h4>
-          <span class="hex-legend"><span class="legend-swatch"></span> Highlighted = Matched Magic Bytes</span>
+      <div class="card-header-right">
+        <div class="ext-status-badge badge-${extCheck.status}">
+          <span class="status-dot"></span>
+          ${escapeHtml(extCheck.badge)}
         </div>
-        <div class="hex-dump-table" role="region" aria-label="Hexadecimal header preview">
-          ${hexDumpRowsHtml}
+        <button type="button" class="card-icon-btn collapse-card-btn" title="Collapse or expand file details">${allCollapsed ? '▸ Expand' : '▾ Collapse'}</button>
+        <button type="button" class="card-icon-btn remove-card-btn" title="Remove this file from results">✕</button>
+      </div>
+    </div>
+
+    <div class="card-body-collapsible">
+      <!-- Toolsley / Unix 'file' command output banner -->
+      <div class="libmagic-banner">
+        <div class="banner-top">
+          <span class="terminal-prompt">$ file --Keep-going "${escapeHtml(fileName)}"</span>
+          <button class="copy-btn" type="button" title="Copy identification result">Copy Result</button>
+        </div>
+        <div class="libmagic-output">
+          <strong>${escapeHtml(detection.name)}</strong> — <span>${escapeHtml(detection.libmagicText)}</span>
+        </div>
+      </div>
+
+      <!-- Extension Spoofing / Verification Alert Box -->
+      <div class="spoof-alert alert-${extCheck.status}">
+        <div class="spoof-alert-text">
+          <strong>Extension Check:</strong> ${escapeHtml(extCheck.message)}
+        </div>
+      </div>
+
+      <!-- Core Metrics Grid -->
+      <div class="metrics-grid">
+        <div class="metric-box">
+          <span class="metric-label">Detected Format</span>
+          <span class="metric-value highlight">${escapeHtml(detection.name)}</span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">MIME Type</span>
+          <span class="metric-value mono">${escapeHtml(detection.mime)}</span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">Category & Confidence</span>
+          <span class="metric-value">${escapeHtml(detection.category)} <small class="conf-tag">(${escapeHtml(detection.confidence)})</small></span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">Valid Extensions</span>
+          <div class="ext-pills-wrap">${expectedExtPills}</div>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">Magic Signature (Offset 0x${detection.magicOffset.toString(16).toUpperCase()})</span>
+          <span class="metric-value mono">${escapeHtml(magicHex || 'N/A')} <span class="ascii-inline">(${escapeHtml(magicAscii)})</span></span>
+        </div>
+        <div class="metric-box">
+          <span class="metric-label">Shannon Entropy</span>
+          <span class="metric-value">${entropy.toFixed(3)} / 8.000 bits/byte</span>
+        </div>
+      </div>
+
+      <!-- Deep Container & Header Insights -->
+      <div class="inspector-columns">
+        <div class="inspector-panel">
+          <h4>Deep Header & Container Analysis</h4>
+          <ul class="details-list">
+            ${detailsListHtml}
+            ${sha256 ? `<li class="hash-item"><strong>SHA-256:</strong> <code>${sha256}</code></li>` : `<li class="hash-item"><strong>SHA-256 (first 128KB sample):</strong> <code>${await computeSHA256(headerArrayBuffer)}</code></li>`}
+          </ul>
+        </div>
+
+        <div class="inspector-panel">
+          <div class="hex-panel-header">
+            <h4>Raw Header Hex Inspector (First 64 Bytes)</h4>
+            <span class="hex-legend"><span class="legend-swatch"></span> Highlighted = Matched Magic Bytes</span>
+          </div>
+          <div class="hex-dump-table" role="region" aria-label="Hexadecimal header preview">
+            ${hexDumpRowsHtml}
+          </div>
         </div>
       </div>
     </div>
@@ -2191,7 +2397,33 @@ async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerAr
     });
   });
 
-  return card;
+  const collapseBtn = card.querySelector('.collapse-card-btn');
+  collapseBtn.addEventListener('click', () => {
+    const isCollapsed = card.classList.toggle('collapsed');
+    collapseBtn.textContent = isCollapsed ? '▸ Expand' : '▾ Collapse';
+  });
+
+  const removeBtn = card.querySelector('.remove-card-btn');
+  removeBtn.addEventListener('click', () => {
+    removeAnalyzedRecord(recordId);
+  });
+
+  return {
+    id: recordId,
+    fileName,
+    fileSize,
+    status: extCheck.status,
+    statusBadge: extCheck.badge,
+    detectedName: detection.name,
+    mime: detection.mime,
+    category: detection.category,
+    confidence: detection.confidence,
+    libmagicText: detection.libmagicText,
+    entropy,
+    sha256,
+    isSample,
+    cardElement: card
+  };
 }
 
 function buildHexPreviewHtml(bytes, magicOffset, magicLength) {
@@ -2241,4 +2473,3 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
-
