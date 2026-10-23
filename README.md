@@ -1,7 +1,7 @@
 # FileID — Magic-Byte File Type Identifier & Spoofing Analyzer
 
 > **Developed by Soumya Ranjan Sethy**  
-> **Current Version:** `v1.0.0`  
+> **Current Version:** `v1.3.0`  
 > **Last Updated:** `2026-10-23`  
 > **Execution Mode:** `100% Client-Side (Browser-Local, Zero Server Uploads)`
 
@@ -133,12 +133,28 @@ e:\Backup\File-Name-Analyzer\File-Name-Analyzer\
 
 | Version | Date | Summary of Changes |
 | :--- | :--- | :--- |
+| **`v1.3.0`** | `2026-10-23` | Added **True Extension Fixer & File Exporter** for single items and multi-selected batches: change file extension to its true detected format (`.mp4`, `.pdf`, `.exe`, etc.), select multiple files via checkboxes, and export renamed files individually or bundled inside a single client-side **`.zip` archive**. |
+| **`v1.2.0`** | `2026-10-23` | Updated bottom footer section to dynamically sync the version (`#footer-version`) from `APP_VERSION` and added **"Developed by Soumya Ranjan Sethy"** attribution across the UI footer, code headers, JSON exports, and documentation. |
 | **`v1.1.0`** | `2026-10-23` | Added explicit version badges/headers across all source files & UI, enhanced upload section for **Multi-File & Folder Batch Uploads**, added live **Batch Summary & Filter Toolbar**, individual card collapse/remove controls, and **Batch JSON Report Export**. |
 | **`v1.0.0`** | `2026-10-23` | Initial release of **FileID — Magic-Byte File Type Identifier & Spoofing Analyzer** with 35+ signature & container dissectors, spoofing alerts, entropy/SHA-256 metrics, 64-byte hex inspector, and project documentation. |
 
 ---
 
 ### Detailed Release Notes
+
+#### [v1.3.0] — 2026-10-23
+- **Added True Extension Fixer & Single/Multi-File Export ([`index.html`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/index.html), [`styles.css`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/styles.css), [`analyzer.js`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/analyzer.js)):**
+  - **Single-Item Extension Fixer & Export Bar:** Each file card now includes a **True Extension Fixer** showing `Current Name → Target Extension Dropdown (.mp4, .m4v, etc.) → Corrected Name`, with **`✏️ Change to .ext`** (updates card in-place and re-verifies status) and **`⬇️ Export "filename.ext"`** (downloads the actual file renamed to its true extension).
+  - **Multi-File Selection Controls:** Added per-card selection checkboxes (mismatched/spoofed files are auto-selected by default), **`Select All`**, **`Select Mismatched`**, and a live **`X Selected`** counter badge.
+  - **Bulk Extension Fix & Multi-File Export:**
+    - **`✏️ Change Selected to True Extension`:** Renames all selected files to their true detected extensions at once.
+    - **`⬇️ Export Selected Files`:** Downloads all selected files with their corrected true extensions.
+    - **`📦 Export Selected as ZIP`:** Uses an in-browser PKZIP (`STORE` + `CRC-32`) archive builder (`createZipArchiveBlob`) to package all selected renamed files into a single `.zip` download with zero external dependencies.
+
+#### [v1.2.0] — 2026-10-23
+- **Updated Bottom Footer Section & Dynamic Version Sync ([`index.html`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/index.html), [`styles.css`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/styles.css), [`analyzer.js`](file:///e:/Backup/File-Name-Analyzer/File-Name-Analyzer/analyzer.js)):**
+  - Added `#footer-version` in the bottom footer section so it always stays synced with `APP_VERSION` (`v1.2.0`).
+  - Added **"Developed by Soumya Ranjan Sethy"** in the bottom footer section (`footer.site-footer`), code headers, and exported JSON batch reports (`APP_AUTHOR`).
 
 #### [v1.1.0] — 2026-10-23
 - **Added Version Tracking Across All Code & UI:**

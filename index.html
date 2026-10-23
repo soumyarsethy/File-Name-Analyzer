@@ -1,14 +1,15 @@
 <!DOCTYPE html>
 <!--
   FileID — Magic-Byte File Type Identifier & Spoofing Analyzer
-  Version: v1.1.0
+  Version: v1.3.0
+  Developed by: Soumya Ranjan Sethy
   Last Updated: 2026-10-23
 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FileID v1.1.0 — Magic-Byte File Type Identifier &amp; Spoofing Analyzer</title>
+  <title>FileID v1.3.0 — Magic-Byte File Type Identifier &amp; Spoofing Analyzer</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -19,7 +20,7 @@
         <div>
           <div class="brand-title-row">
             <h1>FileID — Magic-Byte File Analyzer</h1>
-            <span id="app-version-badge" class="version-badge" title="Current Application Version">v1.1.0</span>
+            <span id="app-version-badge" class="version-badge" title="Current Application Version">v1.3.0</span>
           </div>
           <p class="brand-subtitle">Client-side file signature identifier &amp; extension spoofing detector (inspired by Toolsley / Unix <code>file</code>)</p>
         </div>
@@ -64,26 +65,53 @@
       </div>
     </section>
 
-    <!-- Multi-File Batch Summary & Toolbar -->
+    <!-- Multi-File Batch Summary, Selection & Extension Fix/Export Toolbar -->
     <section id="batch-summary-bar" class="batch-summary-bar hidden" aria-label="Multi-file batch analysis summary">
-      <div class="batch-stats">
-        <button type="button" class="batch-filter-btn active" data-filter="all">
-          All Uploaded <span id="count-all" class="batch-count">0</span>
-        </button>
-        <button type="button" class="batch-filter-btn filter-match" data-filter="match">
-          Verified Match <span id="count-match" class="batch-count">0</span>
-        </button>
-        <button type="button" class="batch-filter-btn filter-warning" data-filter="warning">
-          Mismatches <span id="count-warning" class="batch-count">0</span>
-        </button>
-        <button type="button" class="batch-filter-btn filter-danger" data-filter="danger">
-          Spoofing Alerts <span id="count-danger" class="batch-count">0</span>
-        </button>
+      <div class="batch-top-row">
+        <div class="batch-selection-controls">
+          <label class="select-all-label" title="Select or deselect all visible files">
+            <input id="select-all-checkbox" type="checkbox" />
+            <span>Select All</span>
+          </label>
+          <button id="select-mismatched-btn" type="button" class="batch-mini-btn" title="Select all files with mismatched or spoofed extensions">
+            Select Mismatched
+          </button>
+          <span id="selected-count-badge" class="selected-count-pill">0 Selected</span>
+        </div>
+
+        <div class="batch-stats">
+          <button type="button" class="batch-filter-btn active" data-filter="all">
+            All Uploaded <span id="count-all" class="batch-count">0</span>
+          </button>
+          <button type="button" class="batch-filter-btn filter-match" data-filter="match">
+            Verified Match <span id="count-match" class="batch-count">0</span>
+          </button>
+          <button type="button" class="batch-filter-btn filter-warning" data-filter="warning">
+            Mismatches <span id="count-warning" class="batch-count">0</span>
+          </button>
+          <button type="button" class="batch-filter-btn filter-danger" data-filter="danger">
+            Spoofing Alerts <span id="count-danger" class="batch-count">0</span>
+          </button>
+        </div>
       </div>
-      <div class="batch-actions">
-        <button id="add-more-btn" type="button" class="batch-action-btn">+ Add More Files</button>
-        <button id="toggle-collapse-btn" type="button" class="batch-action-btn">Collapse All</button>
-        <button id="export-json-btn" type="button" class="batch-action-btn">Export Batch JSON</button>
+
+      <div class="batch-bottom-row">
+        <div class="batch-fix-export-group">
+          <button id="fix-selected-ext-btn" type="button" class="batch-action-btn btn-fix-accent" title="Change extension of selected files to their true detected extension">
+            ✏️ Change Selected to True Extension (<span id="fix-selected-count">0</span>)
+          </button>
+          <button id="export-selected-files-btn" type="button" class="batch-action-btn btn-export-accent" title="Download selected files renamed with their true extensions">
+            ⬇️ Export Selected Files (<span id="export-selected-count">0</span>)
+          </button>
+          <button id="export-selected-zip-btn" type="button" class="batch-action-btn btn-export-zip" title="Download selected files with true extensions packaged inside a single ZIP archive">
+            📦 Export Selected as ZIP (<span id="export-zip-count">0</span>)
+          </button>
+        </div>
+        <div class="batch-actions">
+          <button id="add-more-btn" type="button" class="batch-action-btn">+ Add More Files</button>
+          <button id="toggle-collapse-btn" type="button" class="batch-action-btn">Collapse All</button>
+          <button id="export-json-btn" type="button" class="batch-action-btn">📄 Export Report JSON</button>
+        </div>
       </div>
     </section>
 
@@ -217,8 +245,13 @@
   </main>
 
   <footer class="site-footer">
-    <div class="container">
-      FileID <strong>v1.1.0</strong> — Local Browser-Based Multi-File Identifier &amp; Spoofing Inspector. All files are analyzed in memory via Web FileReader API.
+    <div class="container footer-inner">
+      <div>
+        FileID <strong id="footer-version" class="footer-version-tag">v1.3.0</strong> — Local Browser-Based Multi-File Identifier &amp; Spoofing Inspector. All files are analyzed in memory via Web FileReader API.
+      </div>
+      <div class="footer-author">
+        Developed by <strong>Soumya Ranjan Sethy</strong>
+      </div>
     </div>
   </footer>
 

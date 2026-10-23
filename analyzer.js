@@ -1,12 +1,14 @@
 /**
  * FileID — Client-Side Magic-Byte & Container File Analyzer
- * Version: v1.1.0
+ * Version: v1.3.0
+ * Developed by: Soumya Ranjan Sethy
  * Last Updated: 2026-10-23
  * Inspired by Toolsley File Identifier (libmagic / Unix `file` utility)
  * Processes 100% locally in the browser using FileReader & ArrayBuffer.
  */
 
-const APP_VERSION = 'v1.1.0';
+const APP_VERSION = 'v1.3.0';
+const APP_AUTHOR = 'Soumya Ranjan Sethy';
 
 // ============================================================================
 // 1. Utility Helpers for Binary Reading
@@ -1962,16 +1964,164 @@ const BUILTIN_SAMPLES = {
 };
 
 // ============================================================================
-// 6. UI Controller, Multi-File Batch State & Rendering (v1.1.0)
+// 6. Extension Renamer, Binary/ZIP Exporter & Multi-File UI Controller (v1.3.0)
 // ============================================================================
 
 let analyzedItems = [];
 let activeFilter = 'all';
 let allCollapsed = false;
 
+/**
+ * Replaces or appends the true file extension on a filename.
+ * Example: "1 (33).jpg" + "mp4" -> "1 (33).mp4"
+ * Example: "server-daemon" + "elf" -> "server-daemon.elf"
+ */
+function buildCorrectedFileName(fileName, targetExt) {
+  const cleanExt = String(targetExt || '').replace(/^\.+/, '').trim();
+  if (!cleanExt) return fileName;
+
+  const lastSlash = Math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf('\\'));
+  const dirPrefix = lastSlash >= 0 ? fileName.slice(0, lastSlash + 1) : '';
+  const baseName = lastSlash >= 0 ? fileName.slice(lastSlash + 1) : fileName;
+
+  const lastDot = baseName.lastIndexOf('.');
+  if (lastDot > 0) {
+    return `${dirPrefix}${baseName.slice(0, lastDot)}.${cleanExt}`;
+  }
+  return `${dirPrefix}${baseName}.${cleanExt}`;
+}
+
+function getDownloadBaseName(filePath) {
+  const lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+  return lastSlash >= 0 ? filePath.slice(lastSlash + 1) : filePath;
+}
+
+function triggerBlobDownload(blob, downloadFileName) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = getDownloadBaseName(downloadFileName);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+/**
+ * Standard CRC-32 calculation for creating valid PKZIP archives in-browser.
+ */
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) {
+      c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    }
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32Bytes(uint8Arr) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < uint8Arr.length; i++) {
+    crc = CRC32_TABLE[(crc ^ uint8Arr[i]) & 0xFF] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+/**
+ * Creates a standard uncompressed (STORE) .zip Blob from an array of { name, blob } items.
+ */
+async function createZipArchiveBlob(fileEntries) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  const usedNames = new Set();
+
+  for (const entry of fileEntries) {
+    let safeName = getDownloadBaseName(entry.name || 'file.bin');
+    if (usedNames.has(safeName.toLowerCase())) {
+      const dotIdx = safeName.lastIndexOf('.');
+      const stem = dotIdx > 0 ? safeName.slice(0, dotIdx) : safeName;
+      const ext = dotIdx > 0 ? safeName.slice(dotIdx) : '';
+      let counter = 2;
+      while (usedNames.has(`${stem}_${counter}${ext}`.toLowerCase())) counter++;
+      safeName = `${stem}_${counter}${ext}`;
+    }
+    usedNames.add(safeName.toLowerCase());
+
+    const nameBytes = encoder.encode(safeName);
+    const dataBuffer = await entry.blob.arrayBuffer();
+    const dataBytes = new Uint8Array(dataBuffer);
+    const crc = crc32Bytes(dataBytes);
+    const size = dataBytes.length;
+
+    // Local File Header (30 bytes + filename)
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(localHeader.buffer);
+    lv.setUint32(0, 0x04034B50, true); // PK\x03\x04
+    lv.setUint16(4, 20, true);         // Version needed (2.0)
+    lv.setUint16(6, 0x0800, true);     // UTF-8 filename flag
+    lv.setUint16(8, 0, true);          // Store (0 = no compression)
+    lv.setUint16(10, 0, true);         // Mod time
+    lv.setUint16(12, 0x2100, true);    // Mod date
+    lv.setUint32(14, crc, true);       // CRC-32
+    lv.setUint32(18, size, true);      // Compressed size
+    lv.setUint32(22, size, true);      // Uncompressed size
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    localHeader.set(nameBytes, 30);
+
+    // Central Directory Header (46 bytes + filename)
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(centralHeader.buffer);
+    cv.setUint32(0, 0x02014B50, true); // PK\x01\x02
+    cv.setUint16(4, 20, true);         // Version made by
+    cv.setUint16(6, 20, true);         // Version needed
+    cv.setUint16(8, 0x0800, true);     // UTF-8 flag
+    cv.setUint16(10, 0, true);         // Store
+    cv.setUint16(12, 0, true);
+    cv.setUint16(14, 0x2100, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, size, true);
+    cv.setUint32(24, size, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint16(30, 0, true);
+    cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true);
+    cv.setUint16(36, 0, true);
+    cv.setUint32(38, 0, true);
+    cv.setUint32(42, offset, true);    // Relative offset of local header
+    centralHeader.set(nameBytes, 46);
+
+    localParts.push(localHeader, dataBytes);
+    centralParts.push(centralHeader);
+    offset += localHeader.length + size;
+  }
+
+  const centralDirSize = centralParts.reduce((acc, arr) => acc + arr.length, 0);
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054B50, true); // PK\x05\x06
+  ev.setUint16(4, 0, true);
+  ev.setUint16(6, 0, true);
+  ev.setUint16(8, fileEntries.length, true);
+  ev.setUint16(10, fileEntries.length, true);
+  ev.setUint32(12, centralDirSize, true);
+  ev.setUint32(16, offset, true);
+  ev.setUint16(20, 0, true);
+
+  return new Blob([...localParts, ...centralParts, eocd], { type: 'application/zip' });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const versionBadge = document.getElementById('app-version-badge');
   if (versionBadge) versionBadge.textContent = APP_VERSION;
+
+  const footerVersion = document.getElementById('footer-version');
+  if (footerVersion) footerVersion.textContent = APP_VERSION;
 
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
@@ -1981,6 +2131,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const addMoreBtn = document.getElementById('add-more-btn');
   const toggleCollapseBtn = document.getElementById('toggle-collapse-btn');
   const exportJsonBtn = document.getElementById('export-json-btn');
+  const selectAllCheckbox = document.getElementById('select-all-checkbox');
+  const selectMismatchedBtn = document.getElementById('select-mismatched-btn');
+  const fixSelectedExtBtn = document.getElementById('fix-selected-ext-btn');
+  const exportSelectedFilesBtn = document.getElementById('export-selected-files-btn');
+  const exportSelectedZipBtn = document.getElementById('export-selected-zip-btn');
   const uploadStatusHint = document.getElementById('upload-status-hint');
   const batchSummaryBar = document.getElementById('batch-summary-bar');
   const filterBtns = document.querySelectorAll('.batch-filter-btn');
@@ -2054,10 +2209,107 @@ document.addEventListener('DOMContentLoaded', () => {
     resultsContainer.classList.add('hidden');
     clearBtn.classList.add('hidden');
     if (batchSummaryBar) batchSummaryBar.classList.add('hidden');
+    if (selectAllCheckbox) selectAllCheckbox.checked = false;
     if (uploadStatusHint) {
       uploadStatusHint.innerHTML = 'Tip: Hold <kbd>Ctrl</kbd> / <kbd>Shift</kbd> (or <kbd>Cmd</kbd>) in the file picker to select multiple files at once, or drag &amp; drop any number of files together.';
     }
   });
+
+  // Select All Checkbox
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('change', () => {
+      const checked = selectAllCheckbox.checked;
+      analyzedItems.forEach(item => {
+        const isVisible = activeFilter === 'all' || item.status === activeFilter;
+        if (isVisible) {
+          setRecordSelected(item, checked);
+        }
+      });
+      updateBatchSummaryCounts();
+    });
+  }
+
+  // Select Mismatched / Spoofed Only
+  if (selectMismatchedBtn) {
+    selectMismatchedBtn.addEventListener('click', () => {
+      let count = 0;
+      analyzedItems.forEach(item => {
+        const shouldSelect = item.status !== 'match';
+        setRecordSelected(item, shouldSelect);
+        if (shouldSelect) count++;
+      });
+      updateBatchSummaryCounts();
+      if (uploadStatusHint) {
+        uploadStatusHint.textContent = count > 0
+          ? `🎯 Selected ${count} file(s) with extension mismatch or spoofing alerts.`
+          : `✅ All uploaded files already have matching extensions!`;
+      }
+    });
+  }
+
+  // Bulk Fix Extension for Selected Files
+  if (fixSelectedExtBtn) {
+    fixSelectedExtBtn.addEventListener('click', () => {
+      const targets = getTargetRecordsForAction();
+      if (targets.length === 0) return;
+      let changedCount = 0;
+      targets.forEach(item => {
+        if (applyTrueExtensionToRecord(item, item.targetExt)) {
+          changedCount++;
+        }
+      });
+      updateBatchSummaryCounts();
+      applyBatchFilter();
+      if (uploadStatusHint) {
+        uploadStatusHint.textContent = `✏️ Updated ${changedCount} file(s) to their true detected extension! Click "Export Selected Files" or "Export Selected as ZIP" to download them.`;
+      }
+    });
+  }
+
+  // Bulk Export Selected Files Directly (Renamed to True Extension)
+  if (exportSelectedFilesBtn) {
+    exportSelectedFilesBtn.addEventListener('click', async () => {
+      const targets = getTargetRecordsForAction();
+      if (targets.length === 0) return;
+
+      for (let i = 0; i < targets.length; i++) {
+        const item = targets[i];
+        applyTrueExtensionToRecord(item, item.targetExt);
+        exportSingleRecordFile(item);
+        if (targets.length > 1) {
+          await new Promise(r => setTimeout(r, 180));
+        }
+      }
+      updateBatchSummaryCounts();
+      if (uploadStatusHint) {
+        uploadStatusHint.textContent = `⬇️ Exported ${targets.length} file(s) with their true extensions.`;
+      }
+    });
+  }
+
+  // Bulk Export Selected Files as a Single ZIP Archive (Renamed to True Extension)
+  if (exportSelectedZipBtn) {
+    exportSelectedZipBtn.addEventListener('click', async () => {
+      const targets = getTargetRecordsForAction();
+      if (targets.length === 0) return;
+
+      const entries = [];
+      for (const item of targets) {
+        applyTrueExtensionToRecord(item, item.targetExt);
+        entries.push({
+          name: item.fileName,
+          blob: item.rawBlob
+        });
+      }
+      updateBatchSummaryCounts();
+
+      const zipBlob = await createZipArchiveBlob(entries);
+      triggerBlobDownload(zipBlob, `FileID-Fixed-Files-${APP_VERSION}-${Date.now()}.zip`);
+      if (uploadStatusHint) {
+        uploadStatusHint.textContent = `📦 Exported ${entries.length} renamed file(s) inside ZIP archive!`;
+      }
+    });
+  }
 
   filterBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2082,18 +2334,24 @@ document.addEventListener('DOMContentLoaded', () => {
   if (exportJsonBtn) {
     exportJsonBtn.addEventListener('click', () => {
       if (analyzedItems.length === 0) return;
+      const selectedOnly = analyzedItems.filter(i => i.selected);
+      const listToExport = selectedOnly.length > 0 ? selectedOnly : analyzedItems;
       const report = {
         app: 'FileID — Magic-Byte File Type Identifier & Spoofing Analyzer',
         appVersion: APP_VERSION,
+        developedBy: APP_AUTHOR,
         exportedAt: new Date().toISOString(),
-        totalFiles: analyzedItems.length,
+        totalFiles: listToExport.length,
         summary: {
-          verifiedMatch: analyzedItems.filter(i => i.status === 'match').length,
-          mismatches: analyzedItems.filter(i => i.status === 'warning').length,
-          spoofingAlerts: analyzedItems.filter(i => i.status === 'danger').length
+          verifiedMatch: listToExport.filter(i => i.status === 'match').length,
+          mismatches: listToExport.filter(i => i.status === 'warning').length,
+          spoofingAlerts: listToExport.filter(i => i.status === 'danger').length
         },
-        files: analyzedItems.map(i => ({
-          fileName: i.fileName,
+        files: listToExport.map(i => ({
+          originalFileName: i.originalFileName,
+          currentFileName: i.fileName,
+          trueSuggestedFileName: buildCorrectedFileName(i.originalFileName, i.targetExt),
+          renamedToTrueExtension: i.renamed,
           fileSize: i.fileSize,
           status: i.status,
           statusBadge: i.statusBadge,
@@ -2107,12 +2365,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }))
       };
       const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `fileid-batch-report-${APP_VERSION}-${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      triggerBlobDownload(blob, `fileid-report-${APP_VERSION}-${Date.now()}.json`);
     });
   }
 
@@ -2144,13 +2397,16 @@ document.addEventListener('DOMContentLoaded', () => {
     clearBtn.classList.remove('hidden');
     if (batchSummaryBar) batchSummaryBar.classList.remove('hidden');
 
+    const sampleBlob = new Blob([sample.bytes], { type: 'application/octet-stream' });
     const record = await analyzeBufferAndRender(
       sample.fileName,
       sample.bytes.length,
       new Date(),
       sample.bytes.buffer,
       true,
-      sample.description
+      sample.description,
+      null,
+      sampleBlob
     );
     registerAnalyzedRecord(record);
     resultsContainer.prepend(record.cardElement);
@@ -2198,7 +2454,8 @@ document.addEventListener('DOMContentLoaded', () => {
         headerBuffer,
         false,
         null,
-        hashBuffer
+        hashBuffer,
+        file
       );
       batchRecords.push(record);
     }
@@ -2214,6 +2471,110 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 });
+
+/**
+ * Returns user-selected records; if none are checked, defaults to all visible records.
+ */
+function getTargetRecordsForAction() {
+  const selected = analyzedItems.filter(i => i.selected);
+  if (selected.length > 0) return selected;
+  return analyzedItems.filter(i => activeFilter === 'all' || i.status === activeFilter);
+}
+
+function setRecordSelected(record, isSelected) {
+  record.selected = Boolean(isSelected);
+  record.cardElement.classList.toggle('card-selected', record.selected);
+  const cb = record.cardElement.querySelector('.file-select-checkbox');
+  if (cb) cb.checked = record.selected;
+}
+
+/**
+ * Renames a record's filename to use its true detected extension (`chosenExt`),
+ * re-evaluates its extension verification status, and updates the card UI in-place.
+ */
+function applyTrueExtensionToRecord(record, chosenExt) {
+  const extToUse = chosenExt || record.targetExt || (record.detection.extensions && record.detection.extensions[0]) || '';
+  if (!extToUse) return false;
+
+  record.targetExt = extToUse;
+  const newFileName = buildCorrectedFileName(record.originalFileName, extToUse);
+  record.fileName = newFileName;
+  record.renamed = (newFileName !== record.originalFileName);
+
+  const extCheck = evaluateExtensionMatch(record.fileName, record.detection);
+  record.status = extCheck.status;
+  record.statusBadge = extCheck.badge;
+
+  const card = record.cardElement;
+  card.classList.remove('status-match', 'status-warning', 'status-danger', 'status-neutral');
+  card.classList.add(`status-${extCheck.status}`);
+  card.dataset.status = extCheck.status;
+
+  const titleEl = card.querySelector('.file-name');
+  if (titleEl) titleEl.textContent = record.fileName;
+
+  const renamedTagEl = card.querySelector('.renamed-tag');
+  if (renamedTagEl) {
+    if (record.renamed) {
+      renamedTagEl.textContent = `✓ Renamed from ${getDownloadBaseName(record.originalFileName)}`;
+      renamedTagEl.classList.remove('hidden');
+    } else {
+      renamedTagEl.classList.add('hidden');
+    }
+  }
+
+  const iconBadge = card.querySelector('.file-icon-badge');
+  if (iconBadge) iconBadge.textContent = extToUse.toUpperCase().slice(0, 4);
+
+  const statusBadgeEl = card.querySelector('.ext-status-badge');
+  if (statusBadgeEl) {
+    statusBadgeEl.className = `ext-status-badge badge-${extCheck.status}`;
+    statusBadgeEl.innerHTML = `<span class="status-dot"></span>${escapeHtml(extCheck.badge)}`;
+  }
+
+  const alertBox = card.querySelector('.spoof-alert');
+  if (alertBox) {
+    alertBox.className = `spoof-alert alert-${extCheck.status}`;
+    alertBox.innerHTML = `<div class="spoof-alert-text"><strong>Extension Check:</strong> ${escapeHtml(extCheck.message)}</div>`;
+  }
+
+  const termPrompt = card.querySelector('.terminal-prompt');
+  if (termPrompt) {
+    termPrompt.textContent = `$ file --Keep-going "${record.fileName}"`;
+  }
+
+  const currentNameEl = card.querySelector('.fixer-current-name');
+  if (currentNameEl) {
+    currentNameEl.textContent = getDownloadBaseName(record.fileName);
+    currentNameEl.classList.toggle('name-valid', extCheck.status === 'match');
+  }
+
+  const newNameEl = card.querySelector('.fixer-new-name');
+  if (newNameEl) {
+    newNameEl.textContent = getDownloadBaseName(newFileName);
+  }
+
+  const applyBtn = card.querySelector('.btn-apply-ext');
+  if (applyBtn) {
+    applyBtn.textContent = record.renamed ? `✓ Extension Updated (.${extToUse})` : `✏️ Change to .${extToUse}`;
+  }
+
+  const exportSingleBtn = card.querySelector('.btn-export-single');
+  if (exportSingleBtn) {
+    exportSingleBtn.textContent = `⬇️ Export "${getDownloadBaseName(newFileName)}"`;
+  }
+
+  return true;
+}
+
+/**
+ * Exports/downloads a single file with its true extension applied.
+ */
+function exportSingleRecordFile(record) {
+  const correctedName = buildCorrectedFileName(record.originalFileName, record.targetExt);
+  const outBlob = new Blob([record.rawBlob], { type: record.mime || 'application/octet-stream' });
+  triggerBlobDownload(outBlob, correctedName);
+}
 
 function registerAnalyzedRecord(record) {
   analyzedItems.unshift(record);
@@ -2247,11 +2608,29 @@ function updateBatchSummaryCounts() {
   const countMatch = document.getElementById('count-match');
   const countWarning = document.getElementById('count-warning');
   const countDanger = document.getElementById('count-danger');
+  const selectedBadge = document.getElementById('selected-count-badge');
+  const fixSelectedCount = document.getElementById('fix-selected-count');
+  const exportSelectedCount = document.getElementById('export-selected-count');
+  const exportZipCount = document.getElementById('export-zip-count');
+  const selectAllCheckbox = document.getElementById('select-all-checkbox');
+
+  const selectedCount = analyzedItems.filter(i => i.selected).length;
+  const actionCount = selectedCount > 0 ? selectedCount : analyzedItems.length;
 
   if (countAll) countAll.textContent = analyzedItems.length;
   if (countMatch) countMatch.textContent = analyzedItems.filter(i => i.status === 'match').length;
   if (countWarning) countWarning.textContent = analyzedItems.filter(i => i.status === 'warning').length;
   if (countDanger) countDanger.textContent = analyzedItems.filter(i => i.status === 'danger').length;
+
+  if (selectedBadge) selectedBadge.textContent = `${selectedCount} Selected`;
+  if (fixSelectedCount) fixSelectedCount.textContent = actionCount;
+  if (exportSelectedCount) exportSelectedCount.textContent = actionCount;
+  if (exportZipCount) exportZipCount.textContent = actionCount;
+
+  if (selectAllCheckbox) {
+    selectAllCheckbox.checked = analyzedItems.length > 0 && selectedCount === analyzedItems.length;
+    selectAllCheckbox.indeterminate = selectedCount > 0 && selectedCount < analyzedItems.length;
+  }
 }
 
 function applyBatchFilter() {
@@ -2261,13 +2640,20 @@ function applyBatchFilter() {
   });
 }
 
-async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerArrayBuffer, isSample = false, sampleNote = null, fullArrayBufferForHash = null) {
+async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerArrayBuffer, isSample = false, sampleNote = null, fullArrayBufferForHash = null, rawBlob = null) {
   const bytes = new Uint8Array(headerArrayBuffer);
   const detection = detectFileSignature(bytes);
   const extCheck = evaluateExtensionMatch(fileName, detection);
   const entropy = calculateEntropy(bytes);
   const sha256 = await computeSHA256(fullArrayBufferForHash || headerArrayBuffer);
   const recordId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const validExtensions = (detection.extensions && detection.extensions.length > 0)
+    ? detection.extensions
+    : ['bin'];
+  const defaultTargetExt = validExtensions[0];
+  const suggestedFileName = buildCorrectedFileName(fileName, defaultTargetExt);
+  const autoSelected = extCheck.status !== 'match'; // Auto-select mismatched/spoofed files for quick fixing
 
   const magicHex = detection.magicLength > 0
     ? toHex(bytes, detection.magicOffset, Math.min(detection.magicLength, 16))
@@ -2281,12 +2667,16 @@ async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerAr
   const hexDumpRowsHtml = buildHexPreviewHtml(bytes, detection.magicOffset, detection.magicLength);
 
   const card = document.createElement('article');
-  card.className = `result-card status-${extCheck.status}${allCollapsed ? ' collapsed' : ''}`;
+  card.className = `result-card status-${extCheck.status}${allCollapsed ? ' collapsed' : ''}${autoSelected ? ' card-selected' : ''}`;
   card.dataset.status = extCheck.status;
 
   const expectedExtPills = (detection.extensions && detection.extensions.length > 0)
     ? detection.extensions.map(ext => `<span class="ext-pill">.${escapeHtml(ext)}</span>`).join('')
     : '<span class="ext-pill muted">none</span>';
+
+  const extOptionsHtml = validExtensions
+    .map((ext, i) => `<option value="${escapeHtml(ext)}"${i === 0 ? ' selected' : ''}>.${escapeHtml(ext)}${i === 0 ? ' (Primary)' : ''}</option>`)
+    .join('');
 
   const detailsListHtml = (detection.details || [])
     .map(d => `<li>${escapeHtml(d)}</li>`)
@@ -2295,10 +2685,12 @@ async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerAr
   card.innerHTML = `
     <div class="result-header">
       <div class="file-title-group">
-        <div class="file-icon-badge">${escapeHtml((detection.extensions[0] || 'BIN').toUpperCase().slice(0, 4))}</div>
+        <input type="checkbox" class="file-select-checkbox" title="Select file for batch extension change or export" ${autoSelected ? 'checked' : ''} />
+        <div class="file-icon-badge">${escapeHtml((defaultTargetExt || 'BIN').toUpperCase().slice(0, 4))}</div>
         <div>
           <div class="file-name-row">
             <h3 class="file-name">${escapeHtml(fileName)}</h3>
+            <span class="renamed-tag hidden"></span>
             ${isSample ? `<span class="sample-tag">Built-in Sample</span>` : ''}
           </div>
           <p class="file-meta">
@@ -2334,6 +2726,28 @@ async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerAr
       <div class="spoof-alert alert-${extCheck.status}">
         <div class="spoof-alert-text">
           <strong>Extension Check:</strong> ${escapeHtml(extCheck.message)}
+        </div>
+      </div>
+
+      <!-- Extension Fixer & Single-File Export Bar -->
+      <div class="extension-fixer-bar">
+        <div class="fixer-info">
+          <span class="fixer-label">True Extension Fixer:</span>
+          <span class="fixer-current-name ${extCheck.status === 'match' ? 'name-valid' : ''}">${escapeHtml(getDownloadBaseName(fileName))}</span>
+          <span class="fixer-arrow">→</span>
+          <label class="sr-only" for="ext-select-${recordId}">Choose Target Extension</label>
+          <select id="ext-select-${recordId}" class="ext-target-select" title="Select true extension for this file">
+            ${extOptionsHtml}
+          </select>
+          <span class="fixer-new-name">${escapeHtml(getDownloadBaseName(suggestedFileName))}</span>
+        </div>
+        <div class="fixer-actions">
+          <button type="button" class="btn-apply-ext" title="Change this file's extension name to its true format">
+            ✏️ Change to .${escapeHtml(defaultTargetExt)}
+          </button>
+          <button type="button" class="btn-export-single" title="Export / download this file renamed with its true extension">
+            ⬇️ Export "${escapeHtml(getDownloadBaseName(suggestedFileName))}"
+          </button>
         </div>
       </div>
 
@@ -2388,9 +2802,69 @@ async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerAr
     </div>
   `;
 
+  const record = {
+    id: recordId,
+    originalFileName: fileName,
+    fileName,
+    fileSize,
+    targetExt: defaultTargetExt,
+    renamed: false,
+    selected: autoSelected,
+    status: extCheck.status,
+    statusBadge: extCheck.badge,
+    detection,
+    detectedName: detection.name,
+    mime: detection.mime,
+    category: detection.category,
+    confidence: detection.confidence,
+    libmagicText: detection.libmagicText,
+    entropy,
+    sha256,
+    isSample,
+    rawBlob: rawBlob || new Blob([headerArrayBuffer], { type: detection.mime || 'application/octet-stream' }),
+    cardElement: card
+  };
+
+  // Checkbox selection listener
+  const selectCb = card.querySelector('.file-select-checkbox');
+  selectCb.addEventListener('change', () => {
+    setRecordSelected(record, selectCb.checked);
+    updateBatchSummaryCounts();
+  });
+
+  // Target extension dropdown listener
+  const extSelect = card.querySelector('.ext-target-select');
+  extSelect.addEventListener('change', () => {
+    record.targetExt = extSelect.value;
+    const previewName = getDownloadBaseName(buildCorrectedFileName(record.originalFileName, record.targetExt));
+    const newNameEl = card.querySelector('.fixer-new-name');
+    const applyBtn = card.querySelector('.btn-apply-ext');
+    const exportSingleBtn = card.querySelector('.btn-export-single');
+    if (newNameEl) newNameEl.textContent = previewName;
+    if (applyBtn) applyBtn.textContent = `✏️ Change to .${record.targetExt}`;
+    if (exportSingleBtn) exportSingleBtn.textContent = `⬇️ Export "${previewName}"`;
+  });
+
+  // Single-item Change Extension button
+  const applyExtBtn = card.querySelector('.btn-apply-ext');
+  applyExtBtn.addEventListener('click', () => {
+    applyTrueExtensionToRecord(record, record.targetExt);
+    updateBatchSummaryCounts();
+    applyBatchFilter();
+  });
+
+  // Single-item Export / Download button
+  const exportSingleBtn = card.querySelector('.btn-export-single');
+  exportSingleBtn.addEventListener('click', () => {
+    applyTrueExtensionToRecord(record, record.targetExt);
+    exportSingleRecordFile(record);
+    updateBatchSummaryCounts();
+    applyBatchFilter();
+  });
+
   const copyBtn = card.querySelector('.copy-btn');
   copyBtn.addEventListener('click', () => {
-    const summaryText = `${fileName}: ${detection.libmagicText} [MIME: ${detection.mime}]`;
+    const summaryText = `${record.fileName}: ${detection.libmagicText} [MIME: ${detection.mime}]`;
     navigator.clipboard.writeText(summaryText).then(() => {
       copyBtn.textContent = 'Copied!';
       setTimeout(() => { copyBtn.textContent = 'Copy Result'; }, 1800);
@@ -2408,22 +2882,7 @@ async function analyzeBufferAndRender(fileName, fileSize, lastModified, headerAr
     removeAnalyzedRecord(recordId);
   });
 
-  return {
-    id: recordId,
-    fileName,
-    fileSize,
-    status: extCheck.status,
-    statusBadge: extCheck.badge,
-    detectedName: detection.name,
-    mime: detection.mime,
-    category: detection.category,
-    confidence: detection.confidence,
-    libmagicText: detection.libmagicText,
-    entropy,
-    sha256,
-    isSample,
-    cardElement: card
-  };
+  return record;
 }
 
 function buildHexPreviewHtml(bytes, magicOffset, magicLength) {
